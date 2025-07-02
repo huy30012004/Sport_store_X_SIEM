@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lịch sử mua hàng</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+  <style>
+    body { font-family: 'Montserrat', sans-serif; background-color: #f0f2f5; }
+    .container { max-width: 800px; margin: 40px auto; background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { padding: 12px 8px; border: 1px solid #e2e8f0; }
+    th { background: #f7fafc; }
+    .star { cursor: pointer; font-size: 1.25rem; margin-right: 4px; transition: color 0.2s; }
+    .text-yellow-400 { color: #f6c23e; }
+    .text-gray-300 { color: #d1d5db; }
+    .review-form { display: none; margin-top: 8px; }
+    .review-form.active { display: block; }
+    @media (max-width: 640px) {
+      table, thead, tbody, th, td, tr { display: block; }
+      th { display: none; }
+      td { position: relative; padding-left: 50%; }
+      td:before { content: attr(data-label); position: absolute; left: 8px; font-weight: bold; }
+      td[data-label="Mã Đơn"]:before { content: "Mã Đơn"; }
+      td[data-label="Ngày Đặt"]:before { content: "Ngày Đặt"; }
+      td[data-label="Tổng Tiền"]:before { content: "Tổng Tiền"; }
+      td[data-label="Đánh Giá"]:before { content: "Đánh Giá"; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2 class="text-2xl font-bold mb-4">Lịch sử mua hàng</h2>
+    <div id="historyContainer">
+      <p class="text-gray-500">Đang tải lịch sử…</p>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script>
+    // 1) Firebase config + init
+    const firebaseConfig = {
+      apiKey: "AIzaSyAvpSFwsF7ZSAiTR5UFZ-BOroOkla2SvUg",
+      authDomain: "sport-store-user.firebaseapp.com",
+      projectId: "sport-store-user",
+      storageBucket: "sport-store-user.firebasestorage.app",
+      messagingSenderId: "642253971023",
+      appId: "1:642253971023:web:df7d6e0ea36d61f5af543a",
+      measurementId: "G-QQ3J0X0Z0V"
+    };
+    const app = firebase.initializeApp(firebaseConfig, "userApp");
+    const auth = firebase.auth(app);
+
+    // 2) Auth state change handler
+    auth.onAuthStateChanged(user => {
+      if (!user) {
+        window.location.href = "login.html";
+        return;
+      }
+      loadOrderHistory(user.email).catch(console.error);
+    });
+
+    // 3) Load & render order history
+    async function loadOrderHistory(email) {
+      const container = document.getElementById("historyContainer");
+      container.innerHTML = '<p class="text-gray-500">Đang tải lịch sử…</p>';
+
+      try {
+        const res = await fetch("http://192.168.43.1:5000/api/orders");
+        if (!res.ok) throw new Error("Không thể tải dữ liệu đơn hàng");
+        const orders = await res.json();
+
+        const userOrders = orders.filter(o =>
+          (o.customerEmail || "").toLowerCase() === email.toLowerCase()
+        );
+
+        if (!userOrders.length) {
+          container.innerHTML = '<p class="text-gray-500">Bạn chưa có đơn hàng nào.</p>';
+          return;
+        }
+
+        userOrders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+        let html = `<table>
+          <thead>
+            <tr>
+              <th>Mã Đơn</th>
+              <th>Ngày Đặt</th>
+              <th>Tổng Tiền</th>
+              <th>Đánh Giá</th>
+              <th>Chi Tiết Đơn Hàng</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+        userOrders.forEach(o => {
+          const dt = new Date(o.created_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+          const total = Number(o.total || (o.subtotal || 0) + (o.shippingFee || 0))
+            .toLocaleString("vi-VN") + "đ";
+          const pid = o.items?.[0]?.id || "";
+
+          html += `
+            <tr>
+              <td data-label="Mã Đơn">#${o.id}</td>
+              <td data-label="Ngày Đặt">${dt}</td>
+              <td data-label="Tổng Tiền">${total}</td>
+              <td data-label="Đánh Giá">
+                <div class="rating" data-order-id="${o.id}" data-product-id="${pid}">
+                  ${[1, 2, 3, 4, 5].map(i => 
+                    `<i class="fas fa-star star text-gray-300" data-value="${i}"></i>`
+                  ).join('')}
+                </div>
+                <div class="review-form">
+                  <textarea class="comment w-full border rounded p-2 mb-2" placeholder="Viết bình luận…"></textarea>
+                  <input type="file" accept="image/*" class="review-img mb-2" />
+                  <button class="btn-submit-review bg-blue-600 text-white px-4 py-2 rounded">
+                    Gửi đánh giá
+                  </button>
+                </div>
+              </td>
+            </tr>`;
+        });
+
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+        initRatingStars();
+      } catch (err) {
+        container.innerHTML = `<p class="text-red-500">Lỗi: ${err.message}</p>`;
+      }
+    }
+
+    // 4) Initialize rating stars and form submission
+    function initRatingStars() {
+      document.querySelectorAll('.rating').forEach(rEl => {
+        const orderId = rEl.dataset.orderId;
+        const productId = rEl.dataset.productId;
+        const formEl = rEl.nextElementSibling;
+
+        // Load existing rating
+        fetch(`http://192.168.43.1:5000/api/ratings?orderId=${orderId}&productId=${productId}`)
+          .then(res => {
+            if (!res.ok) throw new Error("Không thể tải đánh giá");
+            return res.json();
+          })
+          .then(data => {
+            if (data.rating) highlightStars(rEl, data.rating);
+          })
+          .catch(() => {}); // Suppress errors to avoid breaking UI
+
+        // Click to rate and show form
+        rEl.querySelectorAll('.star').forEach(star => {
+          star.addEventListener('click', () => {
+            const value = +star.dataset.value;
+            highlightStars(rEl, value);
+            formEl.classList.add('active');
+          });
+        });
+
+        // Submit review
+        formEl.querySelector('.btn-submit-review').addEventListener('click', async (e) => {
+          e.preventDefault();
+          const value = +rEl.querySelector('.star.text-yellow-400:last-child')?.dataset.value || 0;
+          const comment = formEl.querySelector('.comment').value.trim();
+          const file = formEl.querySelector('.review-img').files[0];
+
+          if (!value) {
+            alert('Vui lòng chọn số sao');
+            return;
+          }
+
+          const formData = new FormData();
+          formData.append('orderId', orderId);
+          formData.append('productId', productId);
+          formData.append('rating', value);
+          formData.append('comment', comment || '');
+          if (file) formData.append('image', file);
+
+          try {
+            const res = await fetch('http://192.168.43.1:5000/api/ratings', {
+              method: 'POST',
+              body: formData
+            });
+            if (!res.ok) throw new Error("Không thể gửi đánh giá");
+            alert('Cảm ơn bạn đã đánh giá!');
+            formEl.classList.remove('active');
+            formEl.querySelector('.comment').value = '';
+            formEl.querySelector('.review-img').value = '';
+          } catch (err) {
+            console.error(err);
+            alert('Lỗi khi lưu đánh giá: ' + err.message);
+          }
+        });
+      });
+    }
+
+    function highlightStars(container, rating) {
+      container.querySelectorAll('.star').forEach(s => {
+        const value = +s.dataset.value;
+        s.classList.toggle('text-yellow-400', value <= rating);
+        s.classList.toggle('text-gray-300', value > rating);
+      });
+    }
+  </script>
+</body>
+</html>
