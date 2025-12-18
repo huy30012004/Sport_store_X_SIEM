@@ -1,0 +1,2 @@
+GROQ_API_KEY = "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"
+OLLAMA_HOST = None
